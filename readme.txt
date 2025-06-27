@@ -10,7 +10,8 @@
 These scripts are designed to:
 
 ✔️ Fail gracefully without borking the terminal  
-✔️ Retry network and installation errors with backoff  
+✔️ Retry network and installation errors with backoff 
+      (eesential for concurrent runs of CODEX, Multiple concurrent D/L of the same file can fail.) 
 ✔️ Set up robust, CI-friendly, reproducible dev environments  
 ✔️ Be modular and extensible to fit **any language stack** (not just Godot)
 
