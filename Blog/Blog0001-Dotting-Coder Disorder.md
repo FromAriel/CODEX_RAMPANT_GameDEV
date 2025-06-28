@@ -1,5 +1,5 @@
 # Dotting-Coder Disorder: 
-### A Thought About Thoughts That Don’t Stay
+## _A Thought About Thoughts That Don’t Stay_
 ---
 People keep getting AI wrong.
 
