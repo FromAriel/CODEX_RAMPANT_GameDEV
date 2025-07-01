@@ -80,6 +80,8 @@ godot --headless --check-only --quit --path . --verbose .
 
 ## ──── SECTION: PATCH HYGIENE & FORMAT ────
 
+!Respect the folders listed in .codexignore These folders are closed for editing. You may read but not not alter files in those folders.
+
 ```bash
 # Auto-format changed .gd files
 .codex/fix_indent.sh $(git diff --name-only --cached -- '*.gd') >/dev/null
