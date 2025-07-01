@@ -1,24 +1,54 @@
 #!/usr/bin/env bash
-# setup_script.sh  —  reproducible CI setup for Godot-mono + .NET + GDToolkit
-# last tweak: make Godot import pass non-fatal & silence harmless noise
+# setup_script.sh — reproducible CI setup for Godot-mono + .NET + GDToolkit
+# The goal is to spin up “just enough” tooling, warm Godot’s import cache,
+# and then get out of the way.  All heavy-hitters can be toggled off.
 
 set -euo pipefail
 
-###############################################################################
-# Config – override with env-vars if required
-###############################################################################
-GODOT_VERSION="${GODOT_VERSION:-4.4.1}"
-GODOT_CHANNEL="${GODOT_CHANNEL:-stable}"
-DOTNET_SDK_MAJOR="${DOTNET_SDK_MAJOR:-8.0}"
+################################################################################
+# User-tweakable switches (export before running to override)               ####
+################################################################################
+: "${INSTALL_DOTNET:=1}"        # 1 → install the .NET SDK/runtime, 0 → skip
+: "${INSTALL_GODOT:=1}"         # 1 → download & cache Godot-mono, 0 → skip
+: "${VERBOSE_IMPORT:=1}"        # 1 → echo “warming cache…” messages
+: "${GODOT_VERSION:=4.4.1}"     # which Godot-mono release to use
+: "${GODOT_CHANNEL:=stable}"    # “stable”, “rc”, etc.
+: "${DOTNET_SDK_MAJOR:=8.0}"    # .NET major version (used only if enabled)
 
-# Where we cache Godot
+################################################################################
+# Package lists (trim or append as you wish)                               ####
+################################################################################
+# Day-to-day CLI utilities
+BASIC_PACKAGES=(
+  unzip wget curl git
+  python3 python3-pip
+  ca-certificates gnupg lsb-release software-properties-common
+  binutils util-linux bsdextrautils xxd less
+  w3m lynx elinks links html2text vim-common
+)
+
+# Runtime libs Godot needs in a headless container
+pick_icu()   { apt-cache --names-only search '^libicu[0-9]\+$' | awk '{print $1}' | sort -V | tail -1; }
+pick_asound(){ apt-cache --names-only search '^libasound2'       | awk '{print $1}' | sort -V | head -1; }
+
+RUNTIME_LIBS=(
+  "$(pick_icu)"
+  libvulkan1 mesa-vulkan-drivers
+  libgl1 libglu1-mesa
+  libxi6 libxrandr2 libxinerama1 libxcursor1 libx11-6
+  "$(pick_asound)" libpulse0
+)
+
+################################################################################
+# Derived constants – rarely changed                                        ####
+################################################################################
 GODOT_DIR="/opt/godot-mono/${GODOT_VERSION}"
 GODOT_BIN="${GODOT_DIR}/Godot_v${GODOT_VERSION}-${GODOT_CHANNEL}_mono_linux.x86_64"
 ONLINE_DOCS_URL="https://docs.godotengine.org/en/stable/"
 
-###############################################################################
-# Helpers
-###############################################################################
+################################################################################
+# Small helper functions                                                    ####
+################################################################################
 retry() {                       # retry <count> <cmd …>
   local n=$1 d=2 a=1; shift
   while true; do "$@" && break || {
@@ -27,88 +57,53 @@ retry() {                       # retry <count> <cmd …>
   }; done
 }
 
-pick_icu() {                    # newest libicuXX the distro provides
-  apt-cache --names-only search '^libicu[0-9]\+$' \
-    | grep -v -- -dbg | awk '{print $1}' | sort -V | tail -1
-}
-
-pick_asound() {                 # proper libasound2 variant (t64 vs plain)
-  apt-cache --names-only search '^libasound2' \
-    | awk '{print $1}' | sort -V | head -1
-}
-
-###############################################################################
-# Godot cache-warming pass – NEVER fails the build
-###############################################################################
+# Warm the .import cache – no error grepping; if Godot exits 0 we’re happy
 godot_import_pass() {
-  echo '🔄  Godot import pass (warming cache)…'
-
-  # Run Godot head-less and capture everything
-  local log; log="$(mktemp /tmp/godot_import.XXXX.log)"
-  retry 3 godot --headless --editor --import --quiet --quit --path . \
-        2>&1 | tee "$log"
-
-  # Ignore messages known to be harmless
-  local ignore='(RebuildClassCache\.gd|Static function "get_singleton"|'\
-'Static function "idle_frame"|Function "get_tree"|Cannot infer the type of "fs")'
-
-  # If genuine errors remain, save them for downstream inspection
-  if grep -E 'SCRIPT ERROR|ERROR:' "$log" | grep -Ev "$ignore" -q; then
-    local errfile="${log%.log}.errors"
-    grep -E 'SCRIPT ERROR|ERROR:' "$log" | grep -Ev "$ignore" >"$errfile"
-    echo "⚠️  Godot reported script errors – see $errfile"
-    # Optional: expose the path for later CI steps
-    #   echo "IMPORT_ERROR_LOG=$errfile" >>"$GITHUB_ENV"
-  fi
+  [[ "$INSTALL_GODOT" == 0 ]] && return              # nothing to do
+  (( VERBOSE_IMPORT )) && echo '🔄  Warming Godot import cache (headless)…'
+  retry 3 godot --headless --editor --import --quiet --quit --path .
+  (( VERBOSE_IMPORT )) && echo '   …done.'
 }
 
-###############################################################################
-# 1. Base OS packages
-###############################################################################
+################################################################################
+# 1 · Base OS packages                                                      ####
+################################################################################
 echo '🔄  apt update …'
 retry 5 apt-get update -y -qq
 
 echo '📦  Installing basics …'
-retry 5 apt-get install -y --no-install-recommends \
-  unzip wget curl git python3 python3-pip \
-  ca-certificates gnupg lsb-release software-properties-common \
-  binutils util-linux bsdextrautils xxd less \
-  w3m lynx elinks links html2text vim-common
+retry 5 apt-get install -y --no-install-recommends "${BASIC_PACKAGES[@]}"
 
-###############################################################################
-# 2. Runtime libraries Godot needs
-###############################################################################
-RUNTIME_PKGS=( "$(pick_icu)" libvulkan1 mesa-vulkan-drivers libgl1 libglu1-mesa \
-               libxi6 libxrandr2 libxinerama1 libxcursor1 libx11-6 \
-               "$(pick_asound)" libpulse0 )
+################################################################################
+# 2 · Godot runtime dependencies                                            ####
+################################################################################
+if [[ "$INSTALL_GODOT" == 1 ]]; then
+  echo '📦  Ensuring Godot runtime libraries …'
+  # RUNTIME_LIBS may contain an empty string if pick_* failed – filter it out
+  retry 5 apt-get install -y --no-install-recommends \
+        $(printf '%s\n' "${RUNTIME_LIBS[@]}" | grep -v '^$')
+fi
 
-echo '📦  Ensuring Godot runtime libraries …'
-for p in "${RUNTIME_PKGS[@]}"; do
-  [[ -n "$p" ]] && retry 3 apt-get install -y --no-install-recommends "$p"
-done
-
-###############################################################################
-# 3. .NET SDK
-###############################################################################
-if ! command -v dotnet >/dev/null; then
+################################################################################
+# 3 · .NET SDK (optional)                                                   ####
+################################################################################
+if [[ "$INSTALL_DOTNET" == 1 && ! $(command -v dotnet) ]]; then
   echo "⬇️  Installing .NET SDK ${DOTNET_SDK_MAJOR} …"
   install -d /etc/apt/keyrings
   retry 3 curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
-          | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] \
-     https://packages.microsoft.com/debian/12/prod bookworm main" \
-     > /etc/apt/sources.list.d/microsoft.list
+         | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] \
+https://packages.microsoft.com/debian/12/prod bookworm main" \
+  > /etc/apt/sources.list.d/microsoft.list
   retry 5 apt-get update -y -qq
   retry 5 apt-get install -y --no-install-recommends \
-          "dotnet-sdk-${DOTNET_SDK_MAJOR}" \
-          "dotnet-runtime-${DOTNET_SDK_MAJOR}"
+          "dotnet-sdk-${DOTNET_SDK_MAJOR}" "dotnet-runtime-${DOTNET_SDK_MAJOR}"
 fi
 
-###############################################################################
-# 4. Godot-mono
-###############################################################################
-if [[ ! -x "$GODOT_BIN" ]]; then
+################################################################################
+# 4 · Godot-mono (optional)                                                 ####
+################################################################################
+if [[ "$INSTALL_GODOT" == 1 && ! -x "$GODOT_BIN" ]]; then
   echo "⬇️  Fetching Godot-mono ${GODOT_VERSION}-${GODOT_CHANNEL} …"
   tmp="$(mktemp -d)"
   zip="Godot_v${GODOT_VERSION}-${GODOT_CHANNEL}_mono_linux_x86_64.zip"
@@ -123,9 +118,9 @@ if [[ ! -x "$GODOT_BIN" ]]; then
   echo "✔️  Godot-mono installed → /usr/local/bin/godot"
 fi
 
-###############################################################################
-# 5. GDToolkit & pre-commit
-###############################################################################
+################################################################################
+# 5 · GDToolkit + pre-commit                                               ####
+################################################################################
 echo '🐍  Installing GDToolkit & pre-commit …'
 retry 5 pip3 install --no-cache-dir --upgrade 'gdtoolkit==4.*' 'pre-commit>=4.2,<5'
 
@@ -134,17 +129,21 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   retry 3 pre-commit install --install-hooks
 fi
 
-###############################################################################
-# 6. Sanity check & warm import cache
-###############################################################################
-for t in git curl wget unzip python3 pip3 gdformat gdlint dotnet godot; do
-  command -v "$t" >/dev/null || { echo "❌  $t missing"; exit 1; }
+################################################################################
+# 6 · Sanity check + cache warm-up                                          ####
+################################################################################
+MANDATORY_CMDS=(git curl wget unzip python3 pip3 gdformat gdlint)
+[[ "$INSTALL_DOTNET" == 1 ]] && MANDATORY_CMDS+=(dotnet)
+[[ "$INSTALL_GODOT"  == 1 ]] && MANDATORY_CMDS+=(godot)
+
+for cmd in "${MANDATORY_CMDS[@]}"; do
+  command -v "$cmd" >/dev/null || { echo "❌  $cmd missing"; exit 1; }
 done
 
 echo -e '\n✅  Base setup complete!'
-echo " • Godot-mono: $(command -v godot)"
-echo " • .NET SDK:    $(command -v dotnet)"
+[[ "$INSTALL_GODOT" == 1 ]]  && echo " • Godot-mono: $(command -v godot)"
+[[ "$INSTALL_DOTNET" == 1 ]] && echo " • .NET SDK:    $(command -v dotnet)"
 echo " • Docs:        ${ONLINE_DOCS_URL} (offline fetch disabled)"
 
-godot_import_pass
+godot_import_pass   # no-op when INSTALL_GODOT=0
 echo '✅  Done.'
