@@ -1,3 +1,5 @@
 # .codexignore — Ignore these directories from Codex indexing these are closed for edits.
 
-# Ignore full the following folders.
+#Ignore full the following folders.
+#List paths from root to ignore here. 
+#This is not offical but CODEX mostly respects the format as it follows other common variants like .gitnore .gdignore etc. so it figures it out but this is not fullproof make sure your AGENTS.mnd also excludes and points back to this file.
