@@ -88,6 +88,14 @@ Iteration counter: **#{{ITER_NUM}}**    │   Review checkpoint due every **5** 
 - Bump iteration counter.
 
 -------------------------------------------------------------------------------
+OWNERSHIP
+- This is your game. Your design. Your project. Explore innovate and learn.
+- Improve your proccess as you go. Take notes, make design documents. BRAINSTORM.md, etc and use them!
+- You are being trusted to own the process from begining to end and this gies you an oppratunity ro plan for the final build in yor very first line of code.
+- Always be forward thinking. Always look for new inspiration.
+- Make sure the final result is performant. Your in a headless enviroment and can't see the output but you can compile and run the program, make syntheitc tests, add debugging like, a script to find what the distance and relation of objecs on a screen are by a timed detailed 1 fps log output.
+
+-------------------------------------------------------------------------------
 FAIL-SAFE
 If you hit circular requirements or contradictory instructions:
 1. Choose the simpler path that obeys Priority Stack.
