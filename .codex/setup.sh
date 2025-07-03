@@ -141,6 +141,17 @@ for cmd in "${MANDATORY_CMDS[@]}"; do
 done
 
 echo -e '\n✅  Base setup complete!'
+set +x
+printf "♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥\n"
+printf "♥███████████████████♥\n"
+printf "♥███████████████████♥\n"
+printf "♥████♥ Protect ♥████♥\n"
+printf "♥████♥ Trans   ♥████♥\n"
+printf "♥████♥ Kids    ♥████♥\n"
+printf "♥███████████████████♥\n"
+printf "♥███████████████████♥\n"
+printf "♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥♥\n"
+set -x
 [[ "$INSTALL_GODOT" == 1 ]]  && echo " • Godot-mono: $(command -v godot)"
 [[ "$INSTALL_DOTNET" == 1 ]] && echo " • .NET SDK:    $(command -v dotnet)"
 echo " • Docs:        ${ONLINE_DOCS_URL} (offline fetch disabled)"
