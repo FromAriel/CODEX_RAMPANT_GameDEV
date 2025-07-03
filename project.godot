@@ -1,0 +1,9 @@
+; Engine configuration file format 2.0
+config_version=5
+
+[application]
+config/name="RampantGame"
+run/main_scene="res://src/scenes/Main.tscn"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"

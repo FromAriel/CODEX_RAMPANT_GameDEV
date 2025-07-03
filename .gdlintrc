@@ -1,4 +1,4 @@
 # .gdlintrc  – allow FB_* naming scheme
 class-variable-name: FB_[A-Za-z0-9]+(_IN|_UP|_SH|_RD)
-function-name: (_FB_[A-Za-z0-9]+(_IN|_UP))|(_on_[A-Za-z0-9_]+)
+function-name: (_FB_[A-Za-z0-9]+(_IN|_UP))|(_on_[A-Za-z0-9_]+)|(_ready)|(_physics_process)
 disable: [no-else-return]            # example: keep this disabled repo-wide
